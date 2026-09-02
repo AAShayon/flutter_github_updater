@@ -47,38 +47,98 @@ This **auto-generates** everything:
 | `.github/workflows/pr_check.yml` | CI: lint + test on every PR |
 | `lib/update_example.dart` | Copy-paste usage reference |
 
-### Step 3: Manual setup (5 minutes, one-time only)
+### Step 3: GitHub CI/CD configuration
 
-The auto-setup handles all code. You just need to configure GitHub:
+The auto-setup handles all code. You just need to configure GitHub. There are **two ways** to set up the release repo — pick the one that fits your situation:
 
-#### 3a. Create a PUBLIC releases repo
+---
 
-1. Go to GitHub → **New repository**
+#### Option A — Separate releases repo (RECOMMENDED, source stays private)
+
+Use this when you want to **keep your source code private** but still let clients download updates.
+
+```
+SOURCE repo (private, your code)   →   RELEASES repo (public, APK only)
+   your_app/                             your_app_releases/
+   .github/workflows/build_release.yml   app-release.apk (only file)
+```
+
+The workflow (auto-generated) builds the APK in your source repo, then pushes it to the separate public releases repo so clients can download it without any login.
+
+**Step A1. Create a PUBLIC releases repo**
+
+1. GitHub → **New repository**
 2. Name: `your_app_releases` (e.g. `mudi_dokan_releases`)
-3. **Public** (important — app needs unauthenticated download access)
-4. Add **zero code** — this repo holds only APK files
+3. **Public** — critical, the client app needs unauthenticated download access
+4. Add **zero code** — this repo holds only the APK binary
 
-#### 3b. Create a Personal Access Token
+**Step A2. Create a Personal Access Token**
 
-1. GitHub → **Settings** → **Developer settings** → **Personal access tokens** → **Tokens (classic)**
+1. GitHub → **Settings** → **Developer settings** → **Personal access tokens (classic)**
 2. **Generate new token (classic)**
-3. Scope: tick **`repo`** (full control of private repos)
+3. Scope: tick **`repo`** (full control — lets CI write to the other repo)
 4. Expiration: 90 days (renew later)
 5. Copy the token
 
-#### 3c. Add GitHub Secret
+**Step A3. Add a GitHub Secret** (in your **SOURCE** repo)
 
-In your **source** repo:
 1. **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
 2. Name: `RELEASE_REPO_TOKEN`
-3. Value: paste the token from 3b
+3. Value: the token from Step A2
 
-#### 3d. Add GitHub Variable
+**Step A4. Add a GitHub Variable** (in your **SOURCE** repo)
 
-In your **source** repo:
-1. **Settings** → **Secrets and variables** → **Actions** → **Variables** tab → **New repository secret**
+1. **Settings** → **Secrets and variables** → **Actions** → **Variables** tab → **New variable**
 2. Name: `RELEASES_REPO`
-3. Value: `YOUR_USERNAME/your_app_releases`
+3. Value: `YOUR_USERNAME/your_app_releases`  ← the releases repo you made in A1
+
+---
+
+#### Option B — One public repo (source and releases in the SAME repo)
+
+Use this when your **source repo is already public** (or you don't mind it being public). Then you don't need a second repo or a token at all — clients download the APK from your own repo's Releases page.
+
+```
+SINGLE repo (public)
+   your_app/
+   lib/ ...          (your code)
+   .github/workflows/build_release.yml
+   Releases →  app-release.apk  (built + published by CI)
+```
+
+**Step B1. Create/have a PUBLIC source repo**
+
+Your repo must be **public** so clients can download the APK from its Releases page without login.
+
+**Step B2. Set the GitHub Variable** (in your repo)
+
+1. **Settings** → **Secrets and variables** → **Actions** → **Variables** tab → **New variable**
+2. Name: `RELEASES_REPO`
+3. Value: `YOUR_USERNAME/your_app`  ← your **own** repo
+
+**Step B3. (Optional) Set `RELEASE_REPO_TOKEN`**
+
+The workflow checks the built-in `GITHUB_TOKEN` automatically for the same repo (no token needed). If you leave `RELEASE_REPO_TOKEN` unset, the workflow prints a warning and still publishes to your own repo's Releases — that's all Option B needs.
+
+> **Why two configs?** The token `RELEASE_REPO_TOKEN` exists only so CI can write to a **different** repo than the one running the workflow. If source and releases are the same repo, the built-in token already has write access — no PAT needed.
+
+---
+
+### Comparison
+
+| | Option A: separate releases repo | Option B: one public repo |
+|---|---|---|
+| Source code | **Private** (safe) | Public |
+| Need second repo | Yes | No |
+| Need Personal Access Token | Yes | No |
+| Need `RELEASE_REPO_TOKEN` secret | Yes | Optional/skip |
+| `RELEASES_REPO` variable | `user/app_releases` | `user/app` (same repo) |
+| Client can download | Always | Always |
+
+**Recommended:** Option A if the app is proprietary/commercial. Option B if the project is open-source and sharing code is fine.
+
+> ⚠️ Whichever option you pick, the repo where the **APK is published must be PUBLIC**, or clients cannot download updates.
+
 
 ### Step 4: Add update check to your app
 
@@ -90,7 +150,7 @@ import 'package:flutter_github_updater/flutter_github_updater.dart';
 // After navigation, check for updates:
 const config = UpdateConfig(
   owner: 'YOUR_GITHUB_USERNAME',
-  repo: 'your_app_releases',
+  repo: 'your_app_releases',   // ← where CI publishes the APK
 );
 await GithubUpdateService(config).promptIfUpdateAvailable(context);
 ```
@@ -103,6 +163,11 @@ await context.checkForGithubUpdate(UpdateConfig(
   repo: 'your_app_releases',
 ));
 ```
+
+> **Which `repo` goes here?** It must be the repo where the **APK is published**:
+> - **Option A** (separate releases repo): `repo: 'your_app_releases'`
+> - **Option B** (single public repo): `repo: 'your_app'` ← your own repo
+> The owner is always your GitHub username/org.
 
 ### Step 5: Bump version and push
 
