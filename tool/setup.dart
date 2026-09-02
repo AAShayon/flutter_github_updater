@@ -83,7 +83,7 @@ bool usesKotlin(String projectRoot) {
 // ─── File Generators ────────────────────────────────────────────────────────
 
 String generateMainActivity(String packageName, String appId) {
-  final channelName = '${appId.replaceAll('.', '.')}.updater';
+  final channelName = '$appId.updater';
   return '''
 package $packageName
 
@@ -416,6 +416,143 @@ void appendToXml(String path, String snippet, String marker) {
   print('  PATCH $path (+ $marker)');
 }
 
+/// Injects the OTA updater MethodChannel into the app's MainActivity.
+///
+/// Unlike plain writes, this handles REAL projects where a MainActivity
+/// already exists (Flutter scaffolds one). It finds the actual file (kotlin
+/// or java), preserves the app's own package declaration, and ADD the updater
+/// channel code. If the channel is already present, it leaves the file alone
+/// (idempotent on re-runs).
+String writeMainActivity(
+    String root, String fallbackPackage, String appId, String channelName) {
+  final srcMain = '$root/android/app/src/main';
+  File? existing;
+
+  // Look for an existing MainActivity in kotlin/ or java/ dirs
+  final kotlinDir = '$srcMain/kotlin';
+  final javaDir = '$srcMain/java';
+  if (Directory(kotlinDir).existsSync()) {
+    existing = _findFile(kotlinDir, 'MainActivity.kt');
+  }
+  if (existing == null && Directory(javaDir).existsSync()) {
+    existing = _findFile(javaDir, 'MainActivity.java');
+  }
+
+  // If it already has the updater channel, leave it alone
+  if (existing != null &&
+      (existing.readAsStringSync().contains('installApk') ||
+          existing.readAsStringSync().contains('canRequestPackageInstalls'))) {
+    return 'SKIP  ${existing.path.replaceFirst(root, '.')} (updater channel already present)';
+  }
+
+  // Determine the package name to use
+  final detectedPackage = existing != null
+      ? _detectPackage(existing)
+      : null;
+  final useJava = existing?.path.endsWith('.java') ?? false;
+  final pkg = detectedPackage ?? fallbackPackage;
+
+  final content = _mainActivitySource(useJava, pkg, appId, channelName);
+
+  // Determine where to write
+  final targetDir = existing != null
+      ? File(existing.path).parent.path
+      : '$srcMain/${useJava ? 'java' : 'kotlin'}/${pkg.replaceAll('.', '/')}';
+  final targetPath = '$targetDir/${useJava ? 'MainActivity.java' : 'MainActivity.kt'}';
+  ensureDir(targetDir);
+  File(targetPath).writeAsStringSync(content);
+  return existing != null
+      ? 'PATCH ${targetPath.replaceFirst(root, '.')} (+ updater channel)'
+      : 'WRITE ${targetPath.replaceFirst(root, '.')}';
+}
+
+File? _findFile(String dir, String name) {
+  if (!Directory(dir).existsSync()) return null;
+  for (final entity in Directory(dir).listSync(recursive: true)) {
+    if (entity is File && entity.path.endsWith('/$name')) {
+      return entity;
+    }
+  }
+  return null;
+}
+
+String? _detectPackage(File activityFile) {
+  final content = activityFile.readAsStringSync();
+  final m = RegExp(r'^\s*package\s+([\w.]+)\s*;?', multiLine: true)
+      .firstMatch(content);
+  if (m != null) return m.group(1);
+  // Java style without trailing semicolon sometimes
+  return null;
+}
+
+String _mainActivitySource(
+    bool useJava, String pkg, String appId, String channelName) {
+  if (useJava) {
+    return '''
+package $pkg;
+
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
+import androidx.core.content.FileProvider;
+import io.flutter.embedding.android.FlutterActivity;
+import io.flutter.embedding.engine.FlutterEngine;
+import io.flutter.plugin.common.MethodChannel;
+import java.io.File;
+
+public class MainActivity extends FlutterActivity {
+    private static final String CHANNEL = "$channelName";
+
+    @Override
+    public void configureFlutterEngine(FlutterEngine flutterEngine) {
+        super.configureFlutterEngine(flutterEngine);
+        new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
+            .setMethodCallHandler((call, result) -> {
+                switch (call.method) {
+                    case "canRequestPackageInstalls":
+                        result.success(getPackageManager().canRequestPackageInstalls());
+                        break;
+                    case "openInstallSettings":
+                        try {
+                            startActivity(new Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:$pkg")));
+                        } catch (Exception e) {
+                            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS));
+                        }
+                        result.success(null);
+                        break;
+                    case "installApk":
+                        String path = call.argument("path");
+                        if (path == null) {
+                            result.error("NO_PATH", "APK path missing", null);
+                            break;
+                        }
+                        try {
+                            File file = new File(path);
+                            Uri uri = FileProvider.getUriForFile(
+                                this, pkg + ".fileprovider", file);
+                            Intent intent = new Intent(Intent.ACTION_VIEW);
+                            intent.setDataAndType(uri, "application/vnd.android.package-archive");
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            startActivity(intent);
+                            result.success(true);
+                        } catch (Exception e) {
+                            result.error("INSTALL_FAILED", e.getMessage(), null);
+                        }
+                        break;
+                    default:
+                        result.notImplemented();
+                }
+            });
+    }
+}
+''';
+  }
+  return generateMainActivity(pkg, appId);
+}
+
 void insertBeforeClosingBrace(String path, String snippet, String marker) {
   final file = File(path);
   if (!file.existsSync()) {
@@ -474,11 +611,11 @@ void main(List<String> args) {
   print('Uses KTS:     ${usesKts(root)}');
   print('');
 
-  // ── Step 1: Generate Kotlin MainActivity ──────────────────────────────
-  print('Step 1: Generating Kotlin MainActivity...');
-  ensureDir(kotlinDir);
-  final mainActivityPath = '$kotlinDir/MainActivity.kt';
-  writeFile(mainActivityPath, generateMainActivity(kotlinPackage, appId));
+  // ── Step 1: Inject updater channel into Kotlin MainActivity ──────────
+  print('Step 1: Patching Kotlin MainActivity (updater channel)...');
+  final mainActivityResult =
+      writeMainActivity(root, kotlinPackage, appId, channelName);
+  print('  $mainActivityResult');
 
   // ── Step 2: FileProvider paths.xml ───────────────────────────────────
   print('\nStep 2: Generating file_paths.xml...');
