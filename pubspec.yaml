@@ -4,6 +4,9 @@ description: >-
   `dart run flutter_github_updater:setup` and it generates all Android native
   code, manifest entries, signing config, and CI/CD workflows automatically.
 version: 1.0.0
+homepage: https://github.com/AAShayon/flutter_github_updater
+repository: https://github.com/AAShayon/flutter_github_updater
+issue_tracker: https://github.com/AAShayon/flutter_github_updater/issues
 
 environment:
   sdk: ^3.5.0
