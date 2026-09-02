@@ -229,7 +229,7 @@ jobs:
       - name: Read version
         id: version
         run: |
-          VERSION=$(grep '^version:' pubspec.yaml | awk '{print \$2}')
+          VERSION=\$(grep '^version:' pubspec.yaml | awk '{print \$2}')
           TAG="v\${VERSION}"
           echo "tag=\$TAG" >> "\$GITHUB_OUTPUT"
           echo "version=\$VERSION" >> "\$GITHUB_OUTPUT"
