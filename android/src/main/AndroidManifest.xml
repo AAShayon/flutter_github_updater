@@ -1,9 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- System download (DownloadManager) needs internet. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Installing the downloaded APK via the package installer. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Foreground service that auto-starts the installer once the download
+         finishes (Android restricts background activity starts otherwise). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <!-- Showing the "update ready" notification on Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
@@ -19,13 +22,24 @@
                 android:resource="@xml/fgu_file_paths"/>
         </provider>
 
-        <!-- Fired by the system when the background download finishes. -->
+        <!-- Fired by the system when the background download finishes. Must be
+             exported="true": the broadcast is sent BY the system DownloadManager
+             (a different process), and on Android 8.0+ exported receivers are the
+             only ones that receive system broadcasts. The receiver re-validates
+             the download id against prefs before doing anything, so a spoofed
+             broadcast is harmless. -->
         <receiver
             android:name=".FlutterGithubUpdaterReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.DOWNLOAD_COMPLETE"/>
             </intent-filter>
         </receiver>
+
+        <!-- Watches the download and auto-opens the installer when complete. -->
+        <service
+            android:name=".FlutterGithubUpdaterService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
     </application>
 </manifest>

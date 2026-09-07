@@ -1,3 +1,19 @@
+## 1.2.1
+
+* **Download completes → install starts automatically.** Background downloads are
+  now watched by a foreground service that launches the package installer the
+  moment the download finishes — the user no longer has to find a notification
+  or reopen the app. The system install confirmation is still shown (never a
+  silent install). Requires one-time "Install unknown apps" consent as before.
+* **Fixed: completion broadcast never arrived.** The manifest receiver was
+  declared `exported="false"`, so on Android 8.0+ it could not receive the
+  DownloadManager completion broadcast — the "Update ready" notification never
+  appeared and the finished state was never recorded. Now `exported="true"` with
+  id re-validation.
+* Opening the app after a completed-but-not-installed download now starts the
+  install immediately (foreground path) instead of showing the update dialog
+  again.
+
 ## 1.2.0
 
 * **Background system downloads** — new `UpdateConfig.backgroundDownload` flag.

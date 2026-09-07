@@ -202,6 +202,17 @@ class FlutterGithubUpdaterPlugin : FlutterPlugin, ActivityAware, MethodCallHandl
                 .putString(KEY_TAG, tag)
                 .putBoolean(KEY_DOWNLOADED, false)
                 .apply()
+
+            // Watch completion in a foreground service so the installer can be
+            // opened automatically when the download finishes (background
+            // activity starts are otherwise blocked on modern Android).
+            try {
+                FlutterGithubUpdaterService.watch(context.applicationContext, id)
+            } catch (_: Exception) {
+                // Service start failed — the manifest receiver + notification
+                // remain as fallbacks.
+            }
+
             result.success(id)
         } catch (e: Exception) {
             result.error("ENQUEUE_FAILED", e.message, null)

@@ -27,10 +27,16 @@ extension GithubUpdater on BuildContext {
     if (!force && await service.wasDismissed(tag)) return;
 
     // Background mode: a download for this version is already enqueued or
-    // finished — the notification flow owns it, don't prompt (or re-download).
+    // finished. If it's still downloading the notification flow owns it — never
+    // prompt or re-download. If it's finished but not installed, start the
+    // install right away (the app is in the foreground here, so this works).
     if (config.backgroundDownload) {
       final status = await service.backgroundUpdateStatus(tag);
-      if (status.downloading || status.downloaded) return;
+      if (status.downloading) return;
+      if (status.downloaded) {
+        await service.installDownloadedApk();
+        return;
+      }
     }
 
     if (_promptOpen) return;

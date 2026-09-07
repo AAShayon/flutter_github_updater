@@ -224,4 +224,22 @@ class GithubUpdateService {
       return null;
     }
   }
+
+  /// Opens the package installer for the already-downloaded APK. Safe to call
+  /// while the app is in the foreground (the app's own state / the foreground
+  /// download service own the background path). Returns false if nothing to
+  /// install or the native call failed.
+  Future<bool> installDownloadedApk() async {
+    try {
+      final path = await apkNativePath();
+      if (path == null || path.isEmpty) return false;
+      final ok = await channel.invokeMethod<bool>(
+        'installApk',
+        {'path': path},
+      );
+      return ok == true;
+    } catch (_) {
+      return false;
+    }
+  }
 }
