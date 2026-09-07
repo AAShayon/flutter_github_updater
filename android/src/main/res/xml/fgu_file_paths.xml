@@ -1,0 +1,5 @@
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- update.apk is written to the app's external files root, which is what
+         path_provider's getExternalStorageDirectory() returns. -->
+    <external-files-path name="apk" path="." />
+</paths>

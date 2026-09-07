@@ -3,13 +3,18 @@ class UpdateConfig {
   const UpdateConfig({
     required this.owner,
     required this.repo,
-    this.methodChannelName = 'com.example.app/updater',
+    this.methodChannelName = defaultMethodChannelName,
     this.apkFileName = 'app-release.apk',
     this.localApkName = 'update.apk',
-    this.checkTimeout = const Duration(seconds: 10),
+    this.checkTimeout = const Duration(seconds: 20),
     this.downloadTimeout = const Duration(minutes: 5),
+    this.allowHtmlFallback = true,
     this.labels = const UpdateLabels(),
   });
+
+  /// Method channel used for natively handled operations. This must match the
+  /// bundled Android plugin, so as a first-party plugin we own this default.
+  static const String defaultMethodChannelName = 'flutter_github_updater';
 
   final String owner;
   final String repo;
@@ -18,6 +23,13 @@ class UpdateConfig {
   final String localApkName;
   final Duration checkTimeout;
   final Duration downloadTimeout;
+
+  /// When true (default), a failed/rate-limited/404 response from the GitHub
+  /// REST API falls back to following the `github.com/<owner>/<repo>/
+  /// releases/latest` redirect, which is not rate-limited the same way. This
+  /// keeps the update check working when the anonymous API limit is exhausted.
+  final bool allowHtmlFallback;
+
   final UpdateLabels labels;
 
   String get latestReleaseUrl =>

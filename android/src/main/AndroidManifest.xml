@@ -1,0 +1,31 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- System download (DownloadManager) needs internet. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Installing the downloaded APK via the package installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Showing the "update ready" notification on Android 13+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <application>
+        <!-- Shares the downloaded APK with the Android package installer. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.flutter_github_updater.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/fgu_file_paths"/>
+        </provider>
+
+        <!-- Fired by the system when the background download finishes. -->
+        <receiver
+            android:name=".FlutterGithubUpdaterReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

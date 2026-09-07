@@ -31,6 +31,49 @@ void main() {
       expect(labels.later, isNotEmpty);
       expect(labels.updateButton, isNotEmpty);
     });
+
+    test('html fallback enabled and timeout default to 20s', () {
+      const config = UpdateConfig(owner: 'u', repo: 'r');
+      expect(config.allowHtmlFallback, isTrue);
+      expect(config.checkTimeout, const Duration(seconds: 20));
+    });
+  });
+
+  group('parseTag', () {
+    test('parses v1.2.3+45', () {
+      expect(GithubUpdateService.parseTag('v1.2.3+45'), ('1.2.3', 45));
+    });
+    test('parses 1.2.3+45 without v prefix', () {
+      expect(GithubUpdateService.parseTag('1.2.3+45'), ('1.2.3', 45));
+    });
+    test('no +build yields buildNumber 0', () {
+      expect(GithubUpdateService.parseTag('v1.2.3'), ('1.2.3', 0));
+      expect(GithubUpdateService.parseTag('2.0.0'), ('2.0.0', 0));
+    });
+    test('unparsable build part yields 0', () {
+      expect(GithubUpdateService.parseTag('v1.2.3+abc'), ('1.2.3', 0));
+    });
+  });
+
+  group('compareVersions', () {
+    test('detects newer version', () {
+      expect(GithubUpdateService.compareVersions('1.2.4', '1.2.3'),
+          greaterThan(0));
+    });
+    test('detects older version', () {
+      expect(GithubUpdateService.compareVersions('1.2.3', '1.2.4'),
+          lessThan(0));
+    });
+    test('equal versions', () {
+      expect(GithubUpdateService.compareVersions('1.2.3', '1.2.3'), 0);
+    });
+    test('numeric comparison not lexicographic', () {
+      expect(GithubUpdateService.compareVersions('1.10.0', '1.9.0'),
+          greaterThan(0));
+    });
+    test('handles differing segment counts', () {
+      expect(GithubUpdateService.compareVersions('2.0', '2.0.0'), 0);
+    });
   });
 
   group('GithubUpdateService', () {

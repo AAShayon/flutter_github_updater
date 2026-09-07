@@ -1,8 +1,27 @@
 # flutter_github_updater
 
-**One-command auto-setup for in-app APK updates via GitHub Releases.**
+**Plug-and-play in-app APK updates via GitHub Releases — ships its own native Android plugin.**
 
 No Firebase. No Shorebird. No paid plan. Fully free.
+
+## The package is self-contained: just point it at your release repo
+
+From **v1.1.0** the package is a **first-party Flutter plugin**: the native
+Android code (install permission flow, FileProvider sharing, APK installation,
+**and background `DownloadManager` updates** with an "update ready" notification)
+is bundled and auto-merged into your app. You do **not** need to run `setup`,
+write Kotlin, or touch your AndroidManifest for updates to work. Just:
+
+```dart
+const config = UpdateConfig(
+  owner: 'YOUR_GITHUB_USERNAME',
+  repo: 'your_app_releases', // where CI publishes the APK
+);
+await context.checkForGithubUpdate(config);
+```
+
+The `setup` command still exists (one-command, v0) but is now **optional** — it
+only generates shared signing config + CI workflows. Runtime needs nothing.
 
 ## How it works (30 seconds)
 
@@ -28,18 +47,22 @@ You push code → GitHub Actions builds APK → publishes to PUBLIC releases rep
 flutter pub add flutter_github_updater
 ```
 
-### Step 2: Run auto-setup
+### Step 2: Auto-setup *(optional — only for signing + CI)*
+
+The **app works with zero setup** now; the bundled plugin handles everything at
+runtime. Run this only if you also want shared signing + GitHub Actions release
+automation:
 
 ```bash
 dart run flutter_github_updater:setup
 ```
 
-This **auto-generates** everything:
+This generates (all optional):
 
 | Generated | What it does |
 |---|---|
-| `MainActivity.kt` | MethodChannel for APK install (correct package name) |
-| `AndroidManifest.xml` | +REQUEST_INSTALL_PACKAGES permission +FileProvider |
+| `MainActivity.kt` | *(legacy)* MethodChannel for APK install. **No longer needed** — the bundled plugin already handles install. Setup keeps generating it only for backward compatibility; it is dead code if you also use the plugin. |
+| `AndroidManifest.xml` | *(legacy)* +REQUEST_INSTALL_PACKAGES +FileProvider. The plugin manifest already merges these — duplicates are deduplicated by Gradle. |
 | `res/xml/file_paths.xml` | Tells Android where downloaded APKs live |
 | `build.gradle(.kts)` | Shared signing config (updates install over old app) |
 | `proguard-rules.pro` | Keeps Flutter classes, suppresses R8 warnings |
@@ -152,7 +175,7 @@ const config = UpdateConfig(
   owner: 'YOUR_GITHUB_USERNAME',
   repo: 'your_app_releases',   // ← where CI publishes the APK
 );
-await GithubUpdateService(config).promptIfUpdateAvailable(context);
+await context.checkForGithubUpdate(config);
 ```
 
 Or use the context extension:
@@ -272,13 +295,27 @@ Both `debug` and `release` build types use it → **same signature on every buil
 const config = UpdateConfig(
   owner: 'github_username',       // Required: GitHub repo owner
   repo: 'app_releases',           // Required: GitHub repo name
-  methodChannelName: 'com.example.app/updater',  // Auto-matched by setup
+  // methodChannelName: default 'flutter_github_updater' — matches the bundled
+  // plugin. You normally never change it.
   apkFileName: 'app-release.apk', // APK asset filename to look for
   localApkName: 'update.apk',    // Local download filename
-  checkTimeout: Duration(seconds: 10),   // GitHub API timeout
+  checkTimeout: Duration(seconds: 20),   // GitHub API/fetch timeout
   downloadTimeout: Duration(minutes: 5), // APK download timeout
+  allowHtmlFallback: true,       // Fall back to github.com when the API fails
   labels: UpdateLabels(...),      // Localizable strings
 );
+```
+
+### `checkForGithubUpdate(..., force: true)`
+
+The convenience extension accepts `force` for manual checks:
+
+```dart
+// Auto check on launch — honors a previous "Later" tap.
+await context.checkForGithubUpdate(config);
+
+// Manual "Check for update" from a settings menu — always offers again.
+await context.checkForGithubUpdate(config, force: true);
 ```
 
 ### `GithubUpdateService`
@@ -286,15 +323,52 @@ const config = UpdateConfig(
 ```dart
 final service = GithubUpdateService(config);
 
-// Fetch latest release info
+// Fetch latest release info (API first, github.com fallback on failure)
 final latest = await service.fetchLatestRelease();
 
 // Check if update is newer than installed
 final available = await service.isUpdateAvailable(latest!);
 
 // One-shot: fetch + compare + show dialog (safe to call on every launch)
-await service.promptIfUpdateAvailable(context);
+await context.checkForGithubUpdate(config);
 ```
+
+### Background updates (system DownloadManager)
+
+Optional. Instead of the in-app dialog download, hand the download to the
+**system DownloadManager** — it keeps running even if the app is killed. When
+the download finishes, the bundled native receiver posts an **"Update ready"**
+notification; tapping it launches the package installer directly.
+
+```dart
+final service = GithubUpdateService(config);
+
+// 1. Start the download (returns the system download id, or null on failure).
+final id = await service.startBackgroundDownload(latest.downloadUrl, latestTag);
+
+// 2. Poll this whenever you like (e.g. on app resume) to reflect status.
+final status = await service.backgroundUpdateStatus(latestTag);
+// status.downloading  → still running
+// status.downloaded   → finished, notification already posted
+```
+
+Silent (zero-UI) install is **not possible on stock Android** — Google forbids a
+normal app from installing packages without a system prompt. The package
+already does the closest legal thing: background download + "ready" notification
+→ **one tap** install. Truly silent self-install requires a
+**device-owner / Root** profile (outside this package's scope).
+
+## Resilience & behaviors
+
+- **No more silent no-ops on "Later".** `force: true` ignores the dismissed
+  flag, so a manual "Check for update" always shows the dialog again.
+- **Rate-limit/network safe.** When `api.github.com` is slow, returns a 403
+  (anonymous limit, 60 req/hr/IP) or a 404, the check automatically falls back
+  to the public `github.com/<repo>/releases/latest` page instead of giving up.
+  Disable with `allowHtmlFallback: false`.
+- **Semantic-version fallback.** Tags without a `+build` part (e.g. `v1.2.3`)
+  are still detected as updates by comparing the version numbers. Tags with a
+  build number use the build number (higher wins), as before.
 
 ### `UpdateLabels` (localization)
 
@@ -345,6 +419,8 @@ version: 1.0.1+2
 | CI fails at build | `flutter analyze` error. Check Actions log. |
 | "Install blocked" | Android blocked unknown sources. App opens Settings automatically. |
 | Download fails to install | Signature mismatch. Keystore was changed. Must uninstall + reinstall. |
+| Background download never finishes | Reason: no `INTERNET` permission? The plugin merges it, so this shouldn't happen. Check system DownloadManager status. |
+| Background "ready" notification missing | Notification permission denied on Android 13+ (or battery optimization killed it). |
 | `releases/latest` 404 | No release published yet, or releases repo is private. |
 | Offline client | `fetchLatest()` times out silently → no dialog, app works normally. |
 
@@ -358,9 +434,8 @@ These cannot be automated because they require GitHub web UI / API actions:
 2. **Creating a Personal Access Token** — do this in GitHub Settings
 3. **Adding the GitHub Secret** `RELEASE_REPO_TOKEN` — do this in repo Settings
 4. **Adding the GitHub Variable** `RELEASES_REPO` — do this in repo Settings
-5. **Calling `promptIfUpdateAvailable()`** in your app — one line of Dart code
 
-Everything else is auto-generated.
+Everything else is auto-generated (= the plugin) or one line of Dart.
 
 ---
 

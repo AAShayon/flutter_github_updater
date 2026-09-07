@@ -1,3 +1,21 @@
+## 1.1.0
+
+* **Bundled first-party Android plugin** — install permission flow, FileProvider
+  APK sharing and installation are now native `android/` code merged automatically.
+  **No `setup` run, Kotlin, or manifest edits needed for runtime anymore**; `setup`
+  is now optional (signing + CI generation only).
+* **Background auto-updates via system `DownloadManager`** — `startBackgroundDownload()`
+  keeps downloading even if the app is killed; the native `FlutterGithubUpdaterReceiver`
+  posts an "Update ready" notification whose tap launches the installer directly.
+  Status queryable via `backgroundUpdateStatus(tag)`.
+* `checkForGithubUpdate(config, force: true)` — manual "Check for update" now ignores the "Later" dismissal and always offers the update again.
+* Resilient release fetch — when `api.github.com` is slow, rate-limited (403) or 404s, the check falls back to the public `github.com/<repo>/releases/latest` page (`allowHtmlFallback`), so updates no longer silently disappear.
+* Semantic-version fallback — tags without a `+build` part (e.g. `v1.2.3`) are now detected as updates by comparing version numbers; build numbers (when present) still take priority.
+* Default `checkTimeout` raised 10s → 20s for slow mobile networks.
+* Default `methodChannelName` is now `flutter_github_updater` (matches the plugin).
+* Extracted pure `parseTag` + `compareVersions` helpers (unit tested).
+* Fixed stale `promptIfUpdateAvailable` reference in the README API docs.
+
 ## 1.0.0
 
 * Initial release.
