@@ -34,7 +34,11 @@ class _UpdateDialogState extends State<UpdateDialog> {
   void initState() {
     super.initState();
     _service = GithubUpdateService(widget.config);
-    _checkExistingApk();
+    // Foreground flow only — background downloads are owned by the system
+    // DownloadManager, so no partial-file resume logic applies.
+    if (!widget.config.backgroundDownload) {
+      _checkExistingApk();
+    }
   }
 
   Future<void> _checkExistingApk() async {
@@ -64,6 +68,14 @@ class _UpdateDialogState extends State<UpdateDialog> {
   Future<void> _downloadAndInstall() async {
     if (_downloaded) {
       await _install();
+      return;
+    }
+
+    // Background mode: hand the job to the system DownloadManager, close the
+    // dialog and leave the user alone. Never blocks, survives lock/kill, and
+    // the receiver notifies when the update is ready to install.
+    if (widget.config.backgroundDownload) {
+      await _startBackgroundDownload();
       return;
     }
 
@@ -129,6 +141,27 @@ class _UpdateDialogState extends State<UpdateDialog> {
         _status = widget.config.labels.downloadFailed;
       });
     }
+  }
+
+  /// Starts the system background download, closes the dialog and minimizes the
+  /// app so the user isn't stuck watching progress. A progress notification is
+  /// shown by DownloadManager and the receiver posts "Update ready" on
+  /// completion. The native side de-dupes by tag, so re-tapping can never
+  /// enqueue a second download of the same version.
+  Future<void> _startBackgroundDownload() async {
+    final id = await _service.startBackgroundDownload(
+      widget.info.downloadUrl,
+      widget.tag,
+    );
+    if (!mounted) return;
+    if (id == null) {
+      setState(() => _status = widget.config.labels.downloadFailed);
+      return;
+    }
+    Navigator.of(context).pop();
+    try {
+      await _service.channel.invokeMethod('minimizeApp');
+    } catch (_) {}
   }
 
   Future<void> _install() async {

@@ -9,6 +9,7 @@ class UpdateConfig {
     this.checkTimeout = const Duration(seconds: 20),
     this.downloadTimeout = const Duration(minutes: 5),
     this.allowHtmlFallback = true,
+    this.backgroundDownload = false,
     this.labels = const UpdateLabels(),
   });
 
@@ -29,6 +30,15 @@ class UpdateConfig {
   /// releases/latest` redirect, which is not rate-limited the same way. This
   /// keeps the update check working when the anonymous API limit is exhausted.
   final bool allowHtmlFallback;
+
+  /// When true, tapping "Update" enqueues a system-level download through
+  /// DownloadManager instead of downloading inside the dialog. The download
+  /// keeps running if the app is backgrounded or killed, a progress
+  /// notification is shown, the dialog closes and the app minimizes, and the
+  /// bundled receiver posts an "Update ready" notification on completion whose
+  /// tap opens the installer. Repeated prompts are suppressed while a download
+  /// for the same version is already enqueued.
+  final bool backgroundDownload;
 
   final UpdateLabels labels;
 

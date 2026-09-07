@@ -1,5 +1,6 @@
 package com.fluttergithubupdater
 
+import android.app.Activity
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
@@ -7,6 +8,8 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
@@ -23,7 +26,7 @@ internal fun apkFile(context: Context): File =
  * background self-updates through the system DownloadManager (which keeps
  * downloading even if the app is killed). No app-side Kotlin required.
  */
-class FlutterGithubUpdaterPlugin : FlutterPlugin, MethodCallHandler {
+class FlutterGithubUpdaterPlugin : FlutterPlugin, ActivityAware, MethodCallHandler {
 
     companion object {
         const val CHANNEL = "flutter_github_updater"
@@ -39,6 +42,7 @@ class FlutterGithubUpdaterPlugin : FlutterPlugin, MethodCallHandler {
 
     private var channel: MethodChannel? = null
     private var applicationContext: Context? = null
+    private var activity: Activity? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         applicationContext = binding.applicationContext
@@ -51,6 +55,23 @@ class FlutterGithubUpdaterPlugin : FlutterPlugin, MethodCallHandler {
         channel?.setMethodCallHandler(null)
         channel = null
         applicationContext = null
+        activity = null
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        activity = null
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivity() {
+        activity = null
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -111,6 +132,10 @@ class FlutterGithubUpdaterPlugin : FlutterPlugin, MethodCallHandler {
             "apkFilePath" -> {
                 result.success(apkFile(context).absolutePath)
             }
+            "minimizeApp" -> {
+                activity?.moveTaskToBack(true)
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -127,6 +152,34 @@ class FlutterGithubUpdaterPlugin : FlutterPlugin, MethodCallHandler {
             return
         }
         try {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val storedTag = prefs.getString(KEY_TAG, null)
+            val storedId = prefs.getLong(KEY_ID, -1L)
+
+            // Dedupe: if a download for this tag is already active (or already
+            // finished), return the existing id instead of enqueuing a second
+            // one — re-taps / re-prompts must never double the download.
+            if (storedTag == tag && storedId != -1L) {
+                val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                val cursor = manager.query(DownloadManager.Query().setFilterById(storedId))
+                if (cursor != null && cursor.moveToFirst()) {
+                    val status = cursor.getInt(
+                        cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)
+                    )
+                    val active = status == DownloadManager.STATUS_RUNNING ||
+                        status == DownloadManager.STATUS_PENDING ||
+                        status == DownloadManager.STATUS_PAUSED
+                    val completed = status == DownloadManager.STATUS_SUCCESSFUL
+                    cursor.close()
+                    if (active || completed) {
+                        result.success(storedId)
+                        return
+                    }
+                } else {
+                    cursor?.close()
+                }
+            }
+
             apkFile(context).delete()
 
             val request = DownloadManager.Request(Uri.parse(url)).apply {
@@ -134,17 +187,17 @@ class FlutterGithubUpdaterPlugin : FlutterPlugin, MethodCallHandler {
                 setDescription("Downloading update")
                 setDestinationInExternalFilesDir(context, null, APK_NAME)
                 setMimeType("application/vnd.android.package-archive")
-                // Silent: no system "download" notification; our receiver posts
-                // the "update ready" notification on completion instead.
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
+                // Visible so the user sees real progress in the notification
+                // shade without having to keep the app open. Our receiver
+                // posts the actionable "Update ready" notification on finish.
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 setAllowedOverMetered(true)
                 setAllowedOverRoaming(true)
             }
             val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val id = manager.enqueue(request)
 
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit()
+            prefs.edit()
                 .putLong(KEY_ID, id)
                 .putString(KEY_TAG, tag)
                 .putBoolean(KEY_DOWNLOADED, false)

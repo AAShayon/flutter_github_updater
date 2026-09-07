@@ -1,3 +1,24 @@
+## 1.2.0
+
+* **Background system downloads** — new `UpdateConfig.backgroundDownload` flag.
+  When enabled, tapping "Update" enqueues the APK through the system
+  `DownloadManager` instead of downloading inside the dialog. Benefits:
+  * The download **keeps running** when the phone locks or the app is killed —
+    no more restarting from zero when the screen turns off.
+  * A **visible progress notification** is shown, so the user doesn't have to
+    watch the app.
+  * The dialog closes and the app is **moved to the background** automatically.
+  * On completion the receiver posts the actionable "Update ready" notification
+    (tap → installer), the same flow as before.
+* **No more double prompts / double taps**:
+  * Tapping "Update" or "Later" can no longer dismiss a *stacked* dialog and
+    appear to need a second tap — repeated concurrent checks are suppressed.
+  * While a background download for a version is downloading or already
+    finished, the check silently skips prompting (the notification flow owns it).
+  * Native enqueue is **de-duplicated by tag** — re-tapping Update can never
+    enqueue a second download of the same version.
+* Requires Android `minSdk 24` (unchanged).
+
 ## 1.1.1
 
 * **Fixed silent freeze in `UpdateDialog` on "Update" tap** — the native
