@@ -75,6 +75,20 @@ class _UpdateDialogState extends State<UpdateDialog> {
     // dialog and leave the user alone. Never blocks, survives lock/kill, and
     // the receiver notifies when the update is ready to install.
     if (widget.config.backgroundDownload) {
+      final status = await _service.backgroundUpdateStatus(widget.tag);
+      if (status.downloaded) {
+        // Already downloaded but not installed (e.g. install-unknown-apps was
+        // only just enabled). Install now instead of silently closing the app.
+        await _install();
+        return;
+      }
+      if (status.downloading) {
+        // A download for this version is already in progress — the system
+        // notification owns it. Just close the dialog, don't re-enqueue and
+        // don't bounce the app to the background again.
+        Navigator.of(context).pop();
+        return;
+      }
       await _startBackgroundDownload();
       return;
     }

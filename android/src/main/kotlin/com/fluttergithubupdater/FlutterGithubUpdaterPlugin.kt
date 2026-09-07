@@ -230,6 +230,7 @@ class FlutterGithubUpdaterPlugin : FlutterPlugin, ActivityAware, MethodCallHandl
         val storedId = prefs.getLong(KEY_ID, -1L)
 
         var downloading = false
+        var successful = false
         if (storedTag == tag && storedId != -1L) {
             val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val cursor = manager.query(DownloadManager.Query().setFilterById(storedId))
@@ -240,12 +241,19 @@ class FlutterGithubUpdaterPlugin : FlutterPlugin, ActivityAware, MethodCallHandl
                 downloading = status == DownloadManager.STATUS_RUNNING ||
                     status == DownloadManager.STATUS_PENDING ||
                     status == DownloadManager.STATUS_PAUSED
+                successful = status == DownloadManager.STATUS_SUCCESSFUL
             }
             cursor?.close()
         }
 
-        val downloaded = storedTag == tag &&
-            prefs.getBoolean(KEY_DOWNLOADED, false)
+        // "Downloaded" must be DERIVED FROM the DownloadManager row, not just the
+        // persisted flag. The flag is only written by the completion receiver /
+        // foreground service, and on many OEM devices that broadcast never
+        // arrives (app process killed mid-download, battery optimizations). The
+        // DownloadManager itself always knows the truth, so a finished download
+        // is recognized even when the app never saw the completion broadcast.
+        val downloaded = (storedTag == tag && successful) ||
+            (storedTag == tag && prefs.getBoolean(KEY_DOWNLOADED, false))
         result.success(
             mapOf(
                 "downloading" to downloading,

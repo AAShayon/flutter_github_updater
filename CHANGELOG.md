@@ -1,3 +1,23 @@
+## 1.2.2
+
+* **Fixed: "download finished but never installs".** The "finished" state was
+  recorded only by the completion broadcast receiver / foreground service. On
+  many devices (OEM battery optimization, app process killed mid-download) that
+  broadcast never arrives, so the finished flag was never written. The app then:
+  1) on relaunch reported *not downloading + not downloaded* even though the
+  system DownloadManager had finished → it re-prompted "Update or Later"; and
+  2) tapping Update de-duplicated to the already-completed download, silently
+  closed the app and never installed anything.
+  * `backgroundUpdateStatus` now **derives "downloaded" straight from the
+    DownloadManager row** (`STATUS_SUCCESSFUL`), not from the fragile persisted
+    flag — the system always knows the truth.
+  * The foreground service now also **polls DownloadManager every 2s** as a
+    fallback for a missed completion broadcast, so the installer still opens
+    automatically when the download finishes.
+  * Tapping "Update" when a download for this version already finished now
+    **starts the install** instead of closing the app; when it's still
+    downloading it just closes the dialog (no re-enqueue, no minimize).
+
 ## 1.2.1
 
 * **Download completes → install starts automatically.** Background downloads are

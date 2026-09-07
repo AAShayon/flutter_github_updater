@@ -3,7 +3,7 @@ description: >-
   One-command auto-setup for in-app updates via GitHub Releases. Run
   `dart run flutter_github_updater:setup` and it generates all Android native
   code, manifest entries, signing config, and CI/CD workflows automatically.
-version: 1.2.1
+version: 1.2.2
 homepage: https://github.com/AAShayon/flutter_github_updater
 repository: https://github.com/AAShayon/flutter_github_updater
 issue_tracker: https://github.com/AAShayon/flutter_github_updater/issues

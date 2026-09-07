@@ -13,8 +13,11 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
+import java.util.Timer
+import java.util.TimerTask
 
 /**
  * Foreground service that watches the system DownloadManager finish the update
@@ -44,6 +47,8 @@ class FlutterGithubUpdaterService : Service() {
 
     private var downloadId = -1L
     private var watching = false
+    private var finished = false
+    private var pollTimer: Timer? = null
 
     private val completeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -51,16 +56,7 @@ class FlutterGithubUpdaterService : Service() {
             val actual = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
             if (actual != downloadId) return
             if (!wasSuccessful(context, downloadId)) return
-
-            context.getSharedPreferences(
-                FlutterGithubUpdaterPlugin.PREFS, Context.MODE_PRIVATE
-            ).edit()
-                .putBoolean(FlutterGithubUpdaterPlugin.KEY_DOWNLOADED, true)
-                .apply()
-
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            launchInstaller(context)
+            finishAndInstall(context)
         }
     }
 
@@ -87,7 +83,66 @@ class FlutterGithubUpdaterService : Service() {
                 Context.RECEIVER_NOT_EXPORTED
             )
         }
+
+        // Broadcast may never arrive on some devices (OEM battery optimization,
+        // process killed during download). Poll DownloadManager as a reliable
+        // fallback so the installer still opens when the download finishes.
+        startPolling()
+
         return START_NOT_STICKY
+    }
+
+    // Polls until the download finishes, as a reliability fallback for missed
+    // ACTION_DOWNLOAD_COMPLETE broadcasts.
+    private fun startPolling() {
+        stopPolling()
+        val timer = Timer()
+        pollTimer = timer
+        timer.schedule(object : TimerTask() {
+            override fun run() {
+                if (finished) return
+                if (!wasSuccessful(this@FlutterGithubUpdaterService, downloadId)) return
+                finished = true
+                runOnMain {
+                    setDownloadedFlag()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    launchInstaller(this@FlutterGithubUpdaterService)
+                    stopPolling()
+                }
+            }
+        }, 2000L, 2000L)
+    }
+
+    private fun stopPolling() {
+        pollTimer?.cancel()
+        pollTimer = null
+    }
+
+    private fun runOnMain(block: () -> Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            mainExecutor.execute(block)
+        } else {
+            android.os.Handler(Looper.getMainLooper()).post(block)
+        }
+    }
+
+    private fun finishAndInstall(context: Context) {
+        if (finished) return
+        finished = true
+        setDownloadedFlag()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        launchInstaller(context)
+        stopPolling()
+    }
+
+    private fun setDownloadedFlag() {
+        getSharedPreferences(
+            FlutterGithubUpdaterPlugin.PREFS, Context.MODE_PRIVATE
+        ).edit()
+            .putBoolean(FlutterGithubUpdaterPlugin.KEY_DOWNLOADED, true)
+            .apply()
     }
 
     override fun onDestroy() {
@@ -95,6 +150,7 @@ class FlutterGithubUpdaterService : Service() {
             watching = false
             runCatching { unregisterReceiver(completeReceiver) }
         }
+        stopPolling()
         super.onDestroy()
     }
 
