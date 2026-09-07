@@ -1,3 +1,15 @@
+## 1.1.1
+
+* **Fixed silent freeze in `UpdateDialog` on "Update" tap** — the native
+  install-permission preflight (`canRequestPackageInstalls`) now runs inside a
+  try/catch, so a platform hiccup can never stall the dialog in its initial
+  state. When permission is missing it opens install settings and shows a clear
+  hint instead of appearing to do nothing.
+* **Always-visible download progress** — the progress bar starts animating
+  (indeterminate) the moment downloading begins, then switches to a determinate
+  percentage once bytes arrive.
+* Failed downloads now reset state so "Update" remains retryable.
+
 ## 1.1.0
 
 * **Bundled first-party Android plugin** — install permission flow, FileProvider

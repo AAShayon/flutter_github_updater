@@ -46,7 +46,8 @@ class UpdateLabels {
     this.installNow = 'Install Now',
     this.installWaiting = 'Please wait...',
     this.installFailed = 'Installation failed. Try again.',
-    this.installPermissionHint = 'Allow the permission, then tap Install.',
+    this.installPermissionHint =
+      'Allow "Install unknown apps", then tap Update again.',
     this.later = 'Later',
     this.updateButton = 'Update',
   });

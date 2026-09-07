@@ -66,18 +66,32 @@ class _UpdateDialogState extends State<UpdateDialog> {
       await _install();
       return;
     }
-    final canInstall = await _service.channel
-            .invokeMethod<bool>('canRequestPackageInstalls') ??
-        false;
+
+    // Defensive pre-flight: if the native permission check throws or the
+    // platform doesn't answer, fail soft (open install settings + show hint)
+    // instead of stalling the dialog in its initial state.
+    bool canInstall;
+    try {
+      canInstall = await _service.channel
+              .invokeMethod<bool>('canRequestPackageInstalls') ??
+          false;
+    } catch (_) {
+      canInstall = false;
+    }
+
     if (!canInstall) {
-      await _service.channel.invokeMethod('openInstallSettings');
+      try {
+        await _service.channel.invokeMethod('openInstallSettings');
+      } catch (_) {}
       if (!mounted) return;
       setState(() => _status = widget.config.labels.installPermissionHint);
       return;
     }
 
+    if (!mounted) return;
     setState(() {
       _downloading = true;
+      _progress = 0;
       _status = widget.config.labels.downloading;
     });
 
@@ -93,8 +107,10 @@ class _UpdateDialogState extends State<UpdateDialog> {
       await for (final chunk in res.stream) {
         received += chunk.length;
         sink.add(chunk);
-        if (total > 0 && mounted) {
-          setState(() => _progress = received / total);
+        if (mounted) {
+          setState(() {
+            _progress = total > 0 ? received / total : 0;
+          });
         }
       }
       await sink.close();
@@ -109,6 +125,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
       if (!mounted) return;
       setState(() {
         _downloading = false;
+        _downloaded = false;
         _status = widget.config.labels.downloadFailed;
       });
     }
@@ -155,7 +172,10 @@ class _UpdateDialogState extends State<UpdateDialog> {
           ],
           if (_downloading) ...[
             const SizedBox(height: 16),
-            LinearProgressIndicator(value: _progress),
+            // Indeterminate bar the moment download starts (progress == 0),
+            // then determinate once the first bytes arrive — never a silent
+            // freeze while the download runs.
+            LinearProgressIndicator(value: _progress > 0 ? _progress : null),
             const SizedBox(height: 8),
           ],
           if (_status.isNotEmpty) ...[
